@@ -7,7 +7,8 @@ const mimeTypes = {
     '.frag': 'text/plain',
     '.js': 'text/javascript',
     '.html': 'text/html',
-    '.css': 'text/css'
+    '.css': 'text/css',
+    '.ply': 'text/plain'
 };
 
 const port = 3000;
