@@ -191,7 +191,10 @@ MySample.main = (function() {
     
     // Set up matrices
     const projectionMatrix = createPerspectiveMatrix(Math.PI / 4, canvas.width / canvas.height, 0.1, 100.0);
-    const viewMatrix = createTranslationMatrix(0, 0, -5.0);
+    const viewMatrix = multiplyMatrix4x4(
+      createTranslationMatrix(0, -1.0, -5.0),
+      createRotationMatrixX(-0.3)
+    );
     
     // Get current model for centering and scaling
     const model = currentModel === 'bunny' ? bunnyModel : dragonModel;
@@ -222,7 +225,7 @@ MySample.main = (function() {
       // Apply transformations: center, scale, rotate, then move away from camera
       const centerTransform = multiplyMatrix4x4(scaleMatrix, translationMatrix);
       const rotatedTransform = multiplyMatrix4x4(rotationMatrix, centerTransform);
-      const finalTranslation = createTranslationMatrix(0, 0, 0); // Move model away from camera
+      const finalTranslation = createTranslationMatrix(0, 0, -2.0); // Move model away from camera
       modelMatrix = multiplyMatrix4x4(finalTranslation, rotatedTransform);
     }
     

@@ -253,10 +253,10 @@ async function parsePLYFile(filename) {
             const numVertices = parts[0];
             
             if (numVertices === 3) {
-                // Reverse winding order to fix inside-out rendering
+                // Ensure counter-clockwise winding order
                 faces.push(parts[1], parts[3], parts[2]);
             } else if (numVertices === 4) {
-                // Convert quad to two triangles with correct winding
+                // Convert quad to two triangles with consistent CCW winding
                 faces.push(parts[1], parts[3], parts[2]);
                 faces.push(parts[1], parts[4], parts[3]);
             }
