@@ -194,7 +194,7 @@ function createOrthographicMatrix(left, right, bottom, top, near, far) {
 async function parsePLYFile(filename) {
     const data = await loadFileFromServer(filename);
     const lines = data.split('\n');
-    
+
     let vertexCount = 0;
     let faceCount = 0;
     let vertices = [];
@@ -202,11 +202,10 @@ async function parsePLYFile(filename) {
     let faces = [];
     let inHeader = true;
     let lineIndex = 0;
-    
-    // Parse header
+
     while (inHeader && lineIndex < lines.length) {
         const line = lines[lineIndex].trim();
-        
+
         if (line.startsWith('element vertex')) {
             vertexCount = parseInt(line.split(' ')[2]);
         } else if (line.startsWith('element face')) {
@@ -214,11 +213,10 @@ async function parsePLYFile(filename) {
         } else if (line === 'end_header') {
             inHeader = false;
         }
-        
+
         lineIndex++;
     }
-    
-    // Parse vertices
+
     for (let i = 0; i < vertexCount && lineIndex < lines.length; i++) {
         const line = lines[lineIndex].trim();
         if (line) {
@@ -226,10 +224,9 @@ async function parsePLYFile(filename) {
             const x = parseFloat(parts[0]);
             const y = parseFloat(parts[1]);
             const z = parseFloat(parts[2]);
-            
+
             vertices.push(x, y, z);
-            
-            // If normals are provided (6+ values per line)
+
             if (parts.length >= 6) {
                 const nx = parseFloat(parts[3]);
                 const ny = parseFloat(parts[4]);
@@ -239,39 +236,33 @@ async function parsePLYFile(filename) {
         }
         lineIndex++;
     }
-    
-    // If no normals were provided, calculate them
+
     if (normals.length === 0) {
         normals = new Array(vertices.length).fill(0);
     }
-    
-    // Parse faces
+
     for (let i = 0; i < faceCount && lineIndex < lines.length; i++) {
         const line = lines[lineIndex].trim();
         if (line) {
             const parts = line.split(/\s+/).map(p => parseInt(p));
             const numVertices = parts[0];
-            
+
             if (numVertices === 3) {
-                // Ensure counter-clockwise winding order
-                faces.push(parts[1], parts[3], parts[2]);
+                faces.push(parts[1], parts[2], parts[3]);
             } else if (numVertices === 4) {
-                // Convert quad to two triangles with consistent CCW winding
-                faces.push(parts[1], parts[3], parts[2]);
-                faces.push(parts[1], parts[4], parts[3]);
+                faces.push(parts[1], parts[2], parts[3]);
+                faces.push(parts[1], parts[3], parts[4]);
             }
         }
         lineIndex++;
     }
-    
-    // Use appropriate index type based on vertex count
-    const indexArray = vertexCount > 65535 ? new Uint32Array(faces) : new Uint16Array(faces);
-    
-    // Calculate bounding box for debugging
+
+    const indexArray = new Uint32Array(faces);
+
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
     let minZ = Infinity, maxZ = -Infinity;
-    
+
     for (let i = 0; i < vertices.length; i += 3) {
         minX = Math.min(minX, vertices[i]);
         maxX = Math.max(maxX, vertices[i]);
@@ -280,9 +271,14 @@ async function parsePLYFile(filename) {
         minZ = Math.min(minZ, vertices[i + 2]);
         maxZ = Math.max(maxZ, vertices[i + 2]);
     }
-    
-    // console.log(`Model bounds: X[${minX.toFixed(3)}, ${maxX.toFixed(3)}] Y[${minY.toFixed(3)}, ${maxY.toFixed(3)}] Z[${minZ.toFixed(3)}, ${maxZ.toFixed(3)}]`);
-    
+
+    if (vertices.length === 0) {
+        console.error('No vertices parsed!');
+    }
+    if (faces.length === 0) {
+        console.error('No faces parsed!');
+    }
+
     return {
         vertices: new Float32Array(vertices),
         normals: new Float32Array(normals),
