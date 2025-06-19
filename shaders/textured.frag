@@ -4,6 +4,7 @@ precision highp float;
 
 in vec3 vWorldPosition;
 in vec3 vNormal;
+in vec2 vTexCoord;
 
 uniform vec3 uLightPositions[3];
 uniform vec3 uLightColors[3];
@@ -11,6 +12,7 @@ uniform bool uLightEnabled[3];
 uniform vec3 uAmbientColor;
 uniform vec3 uCameraPosition;
 uniform float uSpecularExponent;
+uniform sampler2D uTexture;
 
 out vec4 outColor;
 
@@ -18,7 +20,11 @@ void main()
 {
     vec3 normal = normalize(vNormal);
     vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
-    vec3 color = uAmbientColor;
+    
+    // Sample texture
+    vec3 textureColor = texture(uTexture, vTexCoord).rgb;
+    
+    vec3 color = uAmbientColor * textureColor;
     
     for(int i = 0; i < 3; i++) {
         if(uLightEnabled[i]) {
@@ -26,7 +32,7 @@ void main()
             
             // Diffuse component
             float diffuse = max(dot(normal, lightDir), 0.0);
-            color += uLightColors[i] * diffuse * 0.8;
+            color += uLightColors[i] * diffuse * textureColor * 0.8;
             
             // Specular component
             vec3 reflectDir = reflect(-lightDir, normal);

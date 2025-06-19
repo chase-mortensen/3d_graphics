@@ -11,6 +11,7 @@ uniform bool uLightEnabled[3];
 uniform vec3 uAmbientColor;
 uniform vec3 uCameraPosition;
 uniform float uSpecularExponent;
+uniform samplerCube uEnvironmentMap;
 
 out vec4 outColor;
 
@@ -18,7 +19,9 @@ void main()
 {
     vec3 normal = normalize(vNormal);
     vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
-    vec3 color = uAmbientColor;
+    
+    // Calculate lighting (80%)
+    vec3 lightingColor = uAmbientColor;
     
     for(int i = 0; i < 3; i++) {
         if(uLightEnabled[i]) {
@@ -26,14 +29,21 @@ void main()
             
             // Diffuse component
             float diffuse = max(dot(normal, lightDir), 0.0);
-            color += uLightColors[i] * diffuse * 0.8;
+            lightingColor += uLightColors[i] * diffuse * 0.8;
             
             // Specular component
             vec3 reflectDir = reflect(-lightDir, normal);
             float specular = pow(max(dot(viewDir, reflectDir), 0.0), uSpecularExponent);
-            color += uLightColors[i] * specular * 0.3;
+            lightingColor += uLightColors[i] * specular * 0.3;
         }
     }
     
-    outColor = vec4(color, 1.0);
+    // Calculate reflection (20%)
+    vec3 reflectDir = reflect(-viewDir, normal);
+    vec3 reflectionColor = texture(uEnvironmentMap, reflectDir).rgb;
+    
+    // Mix 80% lighting + 20% reflection
+    vec3 finalColor = lightingColor * 0.8 + reflectionColor * 0.2;
+    
+    outColor = vec4(finalColor, 1.0);
 }

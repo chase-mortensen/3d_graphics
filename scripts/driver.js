@@ -5,9 +5,17 @@ MySample.main = (function() {
   const gl = canvas.getContext('webgl2');
 
   let shaderProgram;
+  let skyboxProgram;
+  let texturedProgram;
+  let reflectionProgram;
+  let mixedProgram;
   let bunnyModel = null;
   let dragonModel = null;
+  let skyboxModel = null;
+  let skyboxTexture = null;
+  let bunnyTexture = null;
   let currentModel = 'bunny';
+  let renderingMode = 'normal'; // 'normal', 'textured', 'reflection', 'mixed'
 
   let lights = [
     { position: [2.0, 2.0, 2.0], color: [1.0, 0.0, 0.0], enabled: true },
@@ -18,6 +26,8 @@ MySample.main = (function() {
   let ambientColor = [0.1, 0.1, 0.1];
   let rotation = 0;
   let frameCount = 0;
+  let cameraPosition = [0, 0, 0];
+  let specularExponent = 32.0;
 
   function createShader(gl, type, source) {
     const shader = gl.createShader(type);
@@ -123,9 +133,13 @@ MySample.main = (function() {
       calculateNormals(plyData.vertices, plyData.indices) :
       plyData.normals;
 
+    // Generate simple spherical texture coordinates
+    const texCoords = generateTextureCoordinates(plyData.vertices, plyData.bounds);
+
     const buffers = {
       vertex: gl.createBuffer(),
       normal: gl.createBuffer(),
+      texCoord: gl.createBuffer(),
       index: gl.createBuffer(),
       indexCount: plyData.indices.length,
       indexType: plyData.indices instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT,
@@ -138,10 +152,42 @@ MySample.main = (function() {
     gl.bindBuffer(gl.ARRAY_BUFFER, buffers.normal);
     gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
 
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffers.texCoord);
+    gl.bufferData(gl.ARRAY_BUFFER, texCoords, gl.STATIC_DRAW);
+
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.index);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, plyData.indices, gl.STATIC_DRAW);
 
     return buffers;
+  }
+
+  function generateTextureCoordinates(vertices, bounds) {
+    const texCoords = new Float32Array((vertices.length / 3) * 2);
+    
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerY = (bounds.minY + bounds.maxY) / 2;
+    const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+    
+    const sizeX = bounds.maxX - bounds.minX;
+    const sizeY = bounds.maxY - bounds.minY;
+    const sizeZ = bounds.maxZ - bounds.minZ;
+    const maxSize = Math.max(sizeX, sizeY, sizeZ);
+    
+    for (let i = 0; i < vertices.length; i += 3) {
+      const x = (vertices[i] - centerX) / maxSize;
+      const y = (vertices[i + 1] - centerY) / maxSize;
+      const z = (vertices[i + 2] - centerZ) / maxSize;
+      
+      // Simple spherical projection
+      const u = 0.5 + Math.atan2(z, x) / (2 * Math.PI);
+      const v = 0.5 - Math.asin(y) / Math.PI;
+      
+      const texIndex = (i / 3) * 2;
+      texCoords[texIndex] = u;
+      texCoords[texIndex + 1] = v;
+    }
+    
+    return texCoords;
   }
 
   function createNormalMatrix(modelMatrix) {
@@ -185,6 +231,161 @@ MySample.main = (function() {
     return normalMatrix;
   }
 
+  function createSkyboxGeometry(gl) {
+    // Create a cube for the skybox
+    const vertices = new Float32Array([
+      // positions          
+      -1.0,  1.0, -1.0,
+      -1.0, -1.0, -1.0,
+       1.0, -1.0, -1.0,
+       1.0, -1.0, -1.0,
+       1.0,  1.0, -1.0,
+      -1.0,  1.0, -1.0,
+
+      -1.0, -1.0,  1.0,
+      -1.0, -1.0, -1.0,
+      -1.0,  1.0, -1.0,
+      -1.0,  1.0, -1.0,
+      -1.0,  1.0,  1.0,
+      -1.0, -1.0,  1.0,
+
+       1.0, -1.0, -1.0,
+       1.0, -1.0,  1.0,
+       1.0,  1.0,  1.0,
+       1.0,  1.0,  1.0,
+       1.0,  1.0, -1.0,
+       1.0, -1.0, -1.0,
+
+      -1.0, -1.0,  1.0,
+      -1.0,  1.0,  1.0,
+       1.0,  1.0,  1.0,
+       1.0,  1.0,  1.0,
+       1.0, -1.0,  1.0,
+      -1.0, -1.0,  1.0,
+
+      -1.0,  1.0, -1.0,
+       1.0,  1.0, -1.0,
+       1.0,  1.0,  1.0,
+       1.0,  1.0,  1.0,
+      -1.0,  1.0,  1.0,
+      -1.0,  1.0, -1.0,
+
+      -1.0, -1.0, -1.0,
+      -1.0, -1.0,  1.0,
+       1.0, -1.0, -1.0,
+       1.0, -1.0, -1.0,
+      -1.0, -1.0,  1.0,
+       1.0, -1.0,  1.0
+    ]);
+
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+    return {
+      vertex: buffer,
+      vertexCount: 36
+    };
+  }
+
+  async function loadCubeMap(gl, faces) {
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture);
+
+    const faceTargets = [
+      gl.TEXTURE_CUBE_MAP_POSITIVE_X,
+      gl.TEXTURE_CUBE_MAP_NEGATIVE_X,
+      gl.TEXTURE_CUBE_MAP_POSITIVE_Y,
+      gl.TEXTURE_CUBE_MAP_NEGATIVE_Y,
+      gl.TEXTURE_CUBE_MAP_POSITIVE_Z,
+      gl.TEXTURE_CUBE_MAP_NEGATIVE_Z
+    ];
+
+    const promises = faces.map((face, index) => {
+      return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+          gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture);
+          gl.texImage2D(faceTargets[index], 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, image);
+          resolve();
+        };
+        image.onerror = reject;
+        image.src = face;
+      });
+    });
+
+    await Promise.all(promises);
+
+    gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+
+    return texture;
+  }
+
+  async function loadTexture(gl, url) {
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    // Put a single pixel in the texture so we can use it immediately
+    const level = 0;
+    const internalFormat = gl.RGBA;
+    const width = 1;
+    const height = 1;
+    const border = 0;
+    const srcFormat = gl.RGBA;
+    const srcType = gl.UNSIGNED_BYTE;
+    const pixel = new Uint8Array([0, 0, 255, 255]);
+    gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, width, height, border, srcFormat, srcType, pixel);
+
+    const image = new Image();
+    return new Promise((resolve, reject) => {
+      image.onload = () => {
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        resolve(texture);
+      };
+      image.onerror = reject;
+      image.src = url;
+    });
+  }
+
+  function renderSkybox() {
+    if (!skyboxProgram || !skyboxModel || !skyboxTexture) return;
+
+    gl.useProgram(skyboxProgram);
+    gl.depthFunc(gl.LEQUAL);
+
+    const projectionMatrix = createPerspectiveMatrix(Math.PI / 4, canvas.width / canvas.height, 0.1, 100.0);
+    const viewMatrix = multiplyMatrix4x4(
+      createTranslationMatrix(0, -1.0, -5.0),
+      createRotationMatrixX(-0.3)
+    );
+
+    gl.uniformMatrix4fv(gl.getUniformLocation(skyboxProgram, 'uProjectionMatrix'), false, transposeMatrix4x4(projectionMatrix));
+    gl.uniformMatrix4fv(gl.getUniformLocation(skyboxProgram, 'uViewMatrix'), false, transposeMatrix4x4(viewMatrix));
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, skyboxTexture);
+    gl.uniform1i(gl.getUniformLocation(skyboxProgram, 'uSkybox'), 0);
+
+    const posLocation = gl.getAttribLocation(skyboxProgram, 'aPosition');
+    gl.bindBuffer(gl.ARRAY_BUFFER, skyboxModel.vertex);
+    gl.enableVertexAttribArray(posLocation);
+    gl.vertexAttribPointer(posLocation, 3, gl.FLOAT, false, 0, 0);
+
+    gl.drawArrays(gl.TRIANGLES, 0, skyboxModel.vertexCount);
+    gl.depthFunc(gl.LESS);
+  }
+
   function render() {
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0.2, 0.2, 0.3, 1.0);
@@ -194,17 +395,40 @@ MySample.main = (function() {
     gl.frontFace(gl.CW);
     gl.cullFace(gl.BACK);
 
-    if (!shaderProgram || (!bunnyModel && !dragonModel)) {
+    // Render skybox first
+    renderSkybox();
+
+    if ((!shaderProgram && !texturedProgram) || (!bunnyModel && !dragonModel)) {
       return;
     }
 
-    gl.useProgram(shaderProgram);
+    // Select appropriate shader program based on rendering mode
+    let program = shaderProgram;
+    if (currentModel === 'bunny') {
+      switch (renderingMode) {
+        case 'textured':
+          program = texturedProgram || shaderProgram;
+          break;
+        case 'reflection':
+          program = reflectionProgram || shaderProgram;
+          break;
+        case 'mixed':
+          program = mixedProgram || shaderProgram;
+          break;
+        default:
+          program = shaderProgram;
+      }
+    }
+    gl.useProgram(program);
 
     const projectionMatrix = createPerspectiveMatrix(Math.PI / 4, canvas.width / canvas.height, 0.1, 100.0);
     const viewMatrix = multiplyMatrix4x4(
       createTranslationMatrix(0, -1.0, -5.0),
       createRotationMatrixX(-0.3)
     );
+    
+    // Calculate camera position (inverse of view matrix translation)
+    cameraPosition = [0, 1.0, 5.0];
 
     const model = currentModel === 'bunny' ? bunnyModel : dragonModel;
     let modelMatrix = createIdentityMatrix();
@@ -235,25 +459,49 @@ MySample.main = (function() {
 
     const normalMatrix = createNormalMatrix(modelMatrix);
 
-    gl.uniformMatrix4fv(gl.getUniformLocation(shaderProgram, 'uProjectionMatrix'), false, transposeMatrix4x4(projectionMatrix));
-    gl.uniformMatrix4fv(gl.getUniformLocation(shaderProgram, 'uViewMatrix'), false, transposeMatrix4x4(viewMatrix));
-    gl.uniformMatrix4fv(gl.getUniformLocation(shaderProgram, 'uModelMatrix'), false, transposeMatrix4x4(modelMatrix));
-    gl.uniformMatrix4fv(gl.getUniformLocation(shaderProgram, 'uNormalMatrix'), false, transposeMatrix4x4(normalMatrix));
+    gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uProjectionMatrix'), false, transposeMatrix4x4(projectionMatrix));
+    gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uViewMatrix'), false, transposeMatrix4x4(viewMatrix));
+    gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uModelMatrix'), false, transposeMatrix4x4(modelMatrix));
+    gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uNormalMatrix'), false, transposeMatrix4x4(normalMatrix));
 
     const lightPositions = lights.map(light => light.position).flat();
     const lightColors = lights.map(light => light.color).flat();
     const lightEnabled = lights.map(light => light.enabled);
 
-    gl.uniform3fv(gl.getUniformLocation(shaderProgram, 'uLightPositions'), lightPositions);
-    gl.uniform3fv(gl.getUniformLocation(shaderProgram, 'uLightColors'), lightColors);
-    gl.uniform1iv(gl.getUniformLocation(shaderProgram, 'uLightEnabled'), lightEnabled);
-    gl.uniform3fv(gl.getUniformLocation(shaderProgram, 'uAmbientColor'), ambientColor);
+    // Set common uniforms if they exist in the shader
+    const lightPosLoc = gl.getUniformLocation(program, 'uLightPositions');
+    const lightColLoc = gl.getUniformLocation(program, 'uLightColors');
+    const lightEnabledLoc = gl.getUniformLocation(program, 'uLightEnabled');
+    const ambientLoc = gl.getUniformLocation(program, 'uAmbientColor');
+    const cameraLoc = gl.getUniformLocation(program, 'uCameraPosition');
+    const specularLoc = gl.getUniformLocation(program, 'uSpecularExponent');
+
+    if (lightPosLoc) gl.uniform3fv(lightPosLoc, lightPositions);
+    if (lightColLoc) gl.uniform3fv(lightColLoc, lightColors);
+    if (lightEnabledLoc) gl.uniform1iv(lightEnabledLoc, lightEnabled);
+    if (ambientLoc) gl.uniform3fv(ambientLoc, ambientColor);
+    if (cameraLoc) gl.uniform3fv(cameraLoc, cameraPosition);
+    if (specularLoc) gl.uniform1f(specularLoc, specularExponent);
+
+    // Set texture for textured rendering
+    if (program === texturedProgram && bunnyTexture) {
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, bunnyTexture);
+      gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 1);
+    }
+
+    // Set environment map for reflection and mixed rendering
+    if ((program === reflectionProgram || program === mixedProgram) && skyboxTexture) {
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_CUBE_MAP, skyboxTexture);
+      gl.uniform1i(gl.getUniformLocation(program, 'uEnvironmentMap'), 1);
+    }
 
     const renderModel = currentModel === 'bunny' ? bunnyModel : dragonModel;
 
     if (renderModel) {
-      const posLocation = gl.getAttribLocation(shaderProgram, 'aPosition');
-      const normalLocation = gl.getAttribLocation(shaderProgram, 'aNormal');
+      const posLocation = gl.getAttribLocation(program, 'aPosition');
+      const normalLocation = gl.getAttribLocation(program, 'aNormal');
 
       gl.bindBuffer(gl.ARRAY_BUFFER, renderModel.vertex);
       gl.enableVertexAttribArray(posLocation);
@@ -262,6 +510,16 @@ MySample.main = (function() {
       gl.bindBuffer(gl.ARRAY_BUFFER, renderModel.normal);
       gl.enableVertexAttribArray(normalLocation);
       gl.vertexAttribPointer(normalLocation, 3, gl.FLOAT, false, 0, 0);
+
+      // Bind texture coordinates if using textured program
+      if (program === texturedProgram) {
+        const texCoordLocation = gl.getAttribLocation(program, 'aTexCoord');
+        if (texCoordLocation !== -1) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, renderModel.texCoord);
+          gl.enableVertexAttribArray(texCoordLocation);
+          gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+        }
+      }
 
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, renderModel.index);
       gl.drawElements(gl.TRIANGLES, renderModel.indexCount, renderModel.indexType, 0);
@@ -297,6 +555,19 @@ MySample.main = (function() {
     modelSelect.onchange = (e) => currentModel = e.target.value;
     modelDiv.appendChild(modelSelect);
     controlsDiv.appendChild(modelDiv);
+
+    const renderingDiv = document.createElement('div');
+    renderingDiv.innerHTML = 'Rendering Mode: ';
+    const renderingSelect = document.createElement('select');
+    renderingSelect.innerHTML = `
+      <option value="normal">Normal (Diffuse + Specular)</option>
+      <option value="textured">Textured (Bunny only)</option>
+      <option value="reflection">100% Reflection (Bunny only)</option>
+      <option value="mixed">Mixed 80/20 (Bunny only)</option>
+    `;
+    renderingSelect.onchange = (e) => renderingMode = e.target.value;
+    renderingDiv.appendChild(renderingSelect);
+    controlsDiv.appendChild(renderingDiv);
 
     lights.forEach((light, index) => {
       const lightDiv = document.createElement('div');
@@ -339,15 +610,74 @@ MySample.main = (function() {
         return;
       }
 
+      // Load skybox shaders
+      const skyboxVertexSource = await loadFileFromServer('shaders/skybox.vert');
+      const skyboxFragmentSource = await loadFileFromServer('shaders/skybox.frag');
+      skyboxProgram = createShaderProgram(gl, skyboxVertexSource, skyboxFragmentSource);
+
+      if (!skyboxProgram) {
+        console.error('Failed to create skybox shader program');
+        return;
+      }
+
+      // Load textured shaders
+      const texturedVertexSource = await loadFileFromServer('shaders/textured.vert');
+      const texturedFragmentSource = await loadFileFromServer('shaders/textured.frag');
+      texturedProgram = createShaderProgram(gl, texturedVertexSource, texturedFragmentSource);
+
+      if (!texturedProgram) {
+        console.error('Failed to create textured shader program');
+        return;
+      }
+
+      // Load reflection shaders
+      const reflectionVertexSource = await loadFileFromServer('shaders/reflection.vert');
+      const reflectionFragmentSource = await loadFileFromServer('shaders/reflection.frag');
+      reflectionProgram = createShaderProgram(gl, reflectionVertexSource, reflectionFragmentSource);
+
+      if (!reflectionProgram) {
+        console.error('Failed to create reflection shader program');
+        return;
+      }
+
+      // Load mixed shaders
+      const mixedVertexSource = await loadFileFromServer('shaders/reflection.vert'); // Same vertex shader
+      const mixedFragmentSource = await loadFileFromServer('shaders/mixed.frag');
+      mixedProgram = createShaderProgram(gl, mixedVertexSource, mixedFragmentSource);
+
+      if (!mixedProgram) {
+        console.error('Failed to create mixed shader program');
+        return;
+      }
+
       console.log('Loading bunny model...');
-      const bunnyData = await parsePLYFile('models/bunny.ply');
+      const bunnyData = await parsePLYFile('assets/models/bunny.ply');
       bunnyModel = createModelBuffers(gl, bunnyData);
       console.log(`Bunny loaded: ${bunnyData.vertexCount} vertices, ${bunnyData.faceCount} faces`);
 
       console.log('Loading dragon model...');
-      const dragonData = await parsePLYFile('models/dragon.ply');
+      const dragonData = await parsePLYFile('assets/models/dragon.ply');
       dragonModel = createModelBuffers(gl, dragonData);
       console.log(`Dragon loaded: ${dragonData.vertexCount} vertices, ${dragonData.faceCount} faces`);
+
+      // Load skybox
+      console.log('Loading skybox...');
+      skyboxModel = createSkyboxGeometry(gl);
+      const faces = [
+        'assets/textures/posx.jpg',
+        'assets/textures/negx.jpg',
+        'assets/textures/posy.jpg',
+        'assets/textures/negy.jpg',
+        'assets/textures/posz.jpg',
+        'assets/textures/negz.jpg'
+      ];
+      skyboxTexture = await loadCubeMap(gl, faces);
+      console.log('Skybox loaded');
+
+      // Load bunny texture
+      console.log('Loading bunny texture...');
+      bunnyTexture = await loadTexture(gl, 'assets/textures/bunny_texture.jpg');
+      console.log('Bunny texture loaded');
 
       createLightControls();
       requestAnimationFrame(animationLoop);
