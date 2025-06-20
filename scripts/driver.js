@@ -232,50 +232,56 @@ MySample.main = (function() {
   }
 
   function createSkyboxGeometry(gl) {
-    // Create a cube for the skybox
+    // Create a large cube for the skybox with inward-facing normals
+    const size = 50.0; // Make it much larger
     const vertices = new Float32Array([
-      // positions          
-      -1.0,  1.0, -1.0,
-      -1.0, -1.0, -1.0,
-       1.0, -1.0, -1.0,
-       1.0, -1.0, -1.0,
-       1.0,  1.0, -1.0,
-      -1.0,  1.0, -1.0,
+      // Front face (inverted winding for inward facing)
+      -size, -size,  size,
+       size, -size,  size,
+       size,  size,  size,
+       size,  size,  size,
+      -size,  size,  size,
+      -size, -size,  size,
 
-      -1.0, -1.0,  1.0,
-      -1.0, -1.0, -1.0,
-      -1.0,  1.0, -1.0,
-      -1.0,  1.0, -1.0,
-      -1.0,  1.0,  1.0,
-      -1.0, -1.0,  1.0,
+      // Back face (inverted winding for inward facing)
+      -size, -size, -size,
+      -size,  size, -size,
+       size,  size, -size,
+       size,  size, -size,
+       size, -size, -size,
+      -size, -size, -size,
 
-       1.0, -1.0, -1.0,
-       1.0, -1.0,  1.0,
-       1.0,  1.0,  1.0,
-       1.0,  1.0,  1.0,
-       1.0,  1.0, -1.0,
-       1.0, -1.0, -1.0,
+      // Top face (inverted winding for inward facing)
+      -size,  size, -size,
+      -size,  size,  size,
+       size,  size,  size,
+       size,  size,  size,
+       size,  size, -size,
+      -size,  size, -size,
 
-      -1.0, -1.0,  1.0,
-      -1.0,  1.0,  1.0,
-       1.0,  1.0,  1.0,
-       1.0,  1.0,  1.0,
-       1.0, -1.0,  1.0,
-      -1.0, -1.0,  1.0,
+      // Bottom face (inverted winding for inward facing)
+      -size, -size, -size,
+       size, -size, -size,
+       size, -size,  size,
+       size, -size,  size,
+      -size, -size,  size,
+      -size, -size, -size,
 
-      -1.0,  1.0, -1.0,
-       1.0,  1.0, -1.0,
-       1.0,  1.0,  1.0,
-       1.0,  1.0,  1.0,
-      -1.0,  1.0,  1.0,
-      -1.0,  1.0, -1.0,
+      // Right face (inverted winding for inward facing)
+       size, -size, -size,
+       size,  size, -size,
+       size,  size,  size,
+       size,  size,  size,
+       size, -size,  size,
+       size, -size, -size,
 
-      -1.0, -1.0, -1.0,
-      -1.0, -1.0,  1.0,
-       1.0, -1.0, -1.0,
-       1.0, -1.0, -1.0,
-      -1.0, -1.0,  1.0,
-       1.0, -1.0,  1.0
+      // Left face (inverted winding for inward facing)
+      -size, -size, -size,
+      -size, -size,  size,
+      -size,  size,  size,
+      -size,  size,  size,
+      -size,  size, -size,
+      -size, -size, -size
     ]);
 
     const buffer = gl.createBuffer();
@@ -305,11 +311,15 @@ MySample.main = (function() {
       return new Promise((resolve, reject) => {
         const image = new Image();
         image.onload = () => {
+          console.log(`Loading cube face ${index}: ${face}`);
           gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture);
           gl.texImage2D(faceTargets[index], 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, image);
           resolve();
         };
-        image.onerror = reject;
+        image.onerror = (err) => {
+          console.error(`Failed to load cube face ${index}: ${face}`, err);
+          reject(err);
+        };
         image.src = face;
       });
     });
@@ -358,17 +368,20 @@ MySample.main = (function() {
     });
   }
 
-  function renderSkybox() {
-    if (!skyboxProgram || !skyboxModel || !skyboxTexture) return;
+  function renderSkybox(projectionMatrix, viewMatrix) {
+    if (!skyboxProgram || !skyboxModel || !skyboxTexture) {
+      console.log('Skybox rendering skipped:', {
+        program: !!skyboxProgram,
+        model: !!skyboxModel, 
+        texture: !!skyboxTexture
+      });
+      return;
+    }
 
+    // if (frameCount % 60 === 0) console.log('Rendering skybox... frame', frameCount);
     gl.useProgram(skyboxProgram);
     gl.depthFunc(gl.LEQUAL);
-
-    const projectionMatrix = createPerspectiveMatrix(Math.PI / 4, canvas.width / canvas.height, 0.1, 100.0);
-    const viewMatrix = multiplyMatrix4x4(
-      createTranslationMatrix(0, -1.0, -5.0),
-      createRotationMatrixX(-0.3)
-    );
+    gl.disable(gl.CULL_FACE);
 
     gl.uniformMatrix4fv(gl.getUniformLocation(skyboxProgram, 'uProjectionMatrix'), false, transposeMatrix4x4(projectionMatrix));
     gl.uniformMatrix4fv(gl.getUniformLocation(skyboxProgram, 'uViewMatrix'), false, transposeMatrix4x4(viewMatrix));
@@ -383,7 +396,9 @@ MySample.main = (function() {
     gl.vertexAttribPointer(posLocation, 3, gl.FLOAT, false, 0, 0);
 
     gl.drawArrays(gl.TRIANGLES, 0, skyboxModel.vertexCount);
+
     gl.depthFunc(gl.LESS);
+    gl.enable(gl.CULL_FACE);
   }
 
   function render() {
@@ -395,8 +410,14 @@ MySample.main = (function() {
     gl.frontFace(gl.CW);
     gl.cullFace(gl.BACK);
 
+    const projectionMatrix = createPerspectiveMatrix(Math.PI / 4, canvas.width / canvas.height, 0.1, 100.0);
+    const viewMatrix = multiplyMatrix4x4(
+      createTranslationMatrix(0, -1.0, -5.0),
+      createRotationMatrixX(-0.3)
+    );
+
     // Render skybox first
-    renderSkybox();
+    renderSkybox(projectionMatrix, viewMatrix);
 
     if ((!shaderProgram && !texturedProgram) || (!bunnyModel && !dragonModel)) {
       return;
@@ -420,12 +441,6 @@ MySample.main = (function() {
       }
     }
     gl.useProgram(program);
-
-    const projectionMatrix = createPerspectiveMatrix(Math.PI / 4, canvas.width / canvas.height, 0.1, 100.0);
-    const viewMatrix = multiplyMatrix4x4(
-      createTranslationMatrix(0, -1.0, -5.0),
-      createRotationMatrixX(-0.3)
-    );
     
     // Calculate camera position (inverse of view matrix translation)
     cameraPosition = [0, 1.0, 5.0];
@@ -613,12 +628,15 @@ MySample.main = (function() {
       // Load skybox shaders
       const skyboxVertexSource = await loadFileFromServer('shaders/skybox.vert');
       const skyboxFragmentSource = await loadFileFromServer('shaders/skybox.frag');
+      console.log('Skybox vertex shader source:', skyboxVertexSource.substring(0, 100));
+      console.log('Skybox fragment shader source:', skyboxFragmentSource.substring(0, 100));
       skyboxProgram = createShaderProgram(gl, skyboxVertexSource, skyboxFragmentSource);
 
       if (!skyboxProgram) {
         console.error('Failed to create skybox shader program');
         return;
       }
+      console.log('Skybox shader program created successfully');
 
       // Load textured shaders
       const texturedVertexSource = await loadFileFromServer('shaders/textured.vert');
@@ -672,7 +690,7 @@ MySample.main = (function() {
         'assets/textures/negz.jpg'
       ];
       skyboxTexture = await loadCubeMap(gl, faces);
-      console.log('Skybox loaded');
+      console.log('Skybox loaded, texture ID:', skyboxTexture);
 
       // Load bunny texture
       console.log('Loading bunny texture...');

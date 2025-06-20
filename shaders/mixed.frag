@@ -40,7 +40,30 @@ void main()
     
     // Calculate reflection (20%)
     vec3 reflectDir = reflect(-viewDir, normal);
-    vec3 reflectionColor = texture(uEnvironmentMap, reflectDir).rgb;
+    vec3 envColor = texture(uEnvironmentMap, reflectDir).rgb;
+    
+    // Create a procedural sky reflection as fallback
+    vec3 topColor = vec3(0.5, 0.7, 1.0);    // Light blue
+    vec3 bottomColor = vec3(0.2, 0.3, 0.6); // Darker blue
+    vec3 horizonColor = vec3(0.8, 0.9, 1.0); // Near white
+    
+    // Use Y component of reflection vector for gradient
+    float t = (reflectDir.y + 1.0) * 0.5; // Normalize -1,1 to 0,1
+    
+    vec3 skyColor;
+    if (t > 0.7) {
+        // Upper sky
+        skyColor = mix(horizonColor, topColor, (t - 0.7) / 0.3);
+    } else if (t > 0.3) {
+        // Horizon
+        skyColor = horizonColor;
+    } else {
+        // Lower sky
+        skyColor = mix(bottomColor, horizonColor, t / 0.3);
+    }
+    
+    // Mix environment texture with procedural sky (favor procedural for now)
+    vec3 reflectionColor = mix(skyColor, envColor, 0.2);
     
     // Mix 80% lighting + 20% reflection
     vec3 finalColor = lightingColor * 0.8 + reflectionColor * 0.2;
