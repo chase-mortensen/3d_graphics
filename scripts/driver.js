@@ -163,30 +163,30 @@ MySample.main = (function() {
 
   function generateTextureCoordinates(vertices, bounds) {
     const texCoords = new Float32Array((vertices.length / 3) * 2);
-    
+
     const centerX = (bounds.minX + bounds.maxX) / 2;
     const centerY = (bounds.minY + bounds.maxY) / 2;
     const centerZ = (bounds.minZ + bounds.maxZ) / 2;
-    
+
     const sizeX = bounds.maxX - bounds.minX;
     const sizeY = bounds.maxY - bounds.minY;
     const sizeZ = bounds.maxZ - bounds.minZ;
     const maxSize = Math.max(sizeX, sizeY, sizeZ);
-    
+
     for (let i = 0; i < vertices.length; i += 3) {
       const x = (vertices[i] - centerX) / maxSize;
       const y = (vertices[i + 1] - centerY) / maxSize;
       const z = (vertices[i + 2] - centerZ) / maxSize;
-      
+
       // Simple spherical projection
       const u = 0.5 + Math.atan2(z, x) / (2 * Math.PI);
       const v = 0.5 - Math.asin(y) / Math.PI;
-      
+
       const texIndex = (i / 3) * 2;
       texCoords[texIndex] = u;
       texCoords[texIndex + 1] = v;
     }
-    
+
     return texCoords;
   }
 
@@ -232,8 +232,7 @@ MySample.main = (function() {
   }
 
   function createSkyboxGeometry(gl) {
-    // Create a large cube for the skybox with inward-facing normals
-    const size = 50.0; // Make it much larger
+    const size = 50.0;
     const vertices = new Float32Array([
       // Front face (inverted winding for inward facing)
       -size, -size,  size,
@@ -340,7 +339,6 @@ MySample.main = (function() {
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
 
-    // Put a single pixel in the texture so we can use it immediately
     const level = 0;
     const internalFormat = gl.RGBA;
     const width = 1;
@@ -372,13 +370,12 @@ MySample.main = (function() {
     if (!skyboxProgram || !skyboxModel || !skyboxTexture) {
       console.log('Skybox rendering skipped:', {
         program: !!skyboxProgram,
-        model: !!skyboxModel, 
+        model: !!skyboxModel,
         texture: !!skyboxTexture
       });
       return;
     }
 
-    // if (frameCount % 60 === 0) console.log('Rendering skybox... frame', frameCount);
     gl.useProgram(skyboxProgram);
     gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.CULL_FACE);
@@ -407,7 +404,7 @@ MySample.main = (function() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
-    gl.frontFace(gl.CW);
+    gl.frontFace(gl.CCW);
     gl.cullFace(gl.BACK);
 
     const projectionMatrix = createPerspectiveMatrix(Math.PI / 4, canvas.width / canvas.height, 0.1, 100.0);
@@ -416,14 +413,12 @@ MySample.main = (function() {
       createRotationMatrixX(-0.3)
     );
 
-    // Render skybox first
     renderSkybox(projectionMatrix, viewMatrix);
 
     if ((!shaderProgram && !texturedProgram) || (!bunnyModel && !dragonModel)) {
       return;
     }
 
-    // Select appropriate shader program based on rendering mode
     let program = shaderProgram;
     if (currentModel === 'bunny') {
       switch (renderingMode) {
@@ -441,8 +436,7 @@ MySample.main = (function() {
       }
     }
     gl.useProgram(program);
-    
-    // Calculate camera position (inverse of view matrix translation)
+
     cameraPosition = [0, 1.0, 5.0];
 
     const model = currentModel === 'bunny' ? bunnyModel : dragonModel;
@@ -462,8 +456,11 @@ MySample.main = (function() {
       const translationMatrix = createTranslationMatrix(-centerX, -centerY, -centerZ);
       const scaleMatrix = createScaleMatrix(scale, scale, scale);
       const rotationMatrix = multiplyMatrix4x4(
-        createRotationMatrixY(rotation),
-        createRotationMatrixX(rotation * 0.5)
+        multiplyMatrix4x4(
+          createRotationMatrixY(rotation + Math.PI/4),
+          createRotationMatrixX(rotation * 0.3 + Math.PI/6)
+        ),
+        createRotationMatrixZ(rotation * 0.2)
       );
 
       const centerTransform = multiplyMatrix4x4(scaleMatrix, translationMatrix);
@@ -483,7 +480,6 @@ MySample.main = (function() {
     const lightColors = lights.map(light => light.color).flat();
     const lightEnabled = lights.map(light => light.enabled);
 
-    // Set common uniforms if they exist in the shader
     const lightPosLoc = gl.getUniformLocation(program, 'uLightPositions');
     const lightColLoc = gl.getUniformLocation(program, 'uLightColors');
     const lightEnabledLoc = gl.getUniformLocation(program, 'uLightEnabled');
@@ -498,14 +494,12 @@ MySample.main = (function() {
     if (cameraLoc) gl.uniform3fv(cameraLoc, cameraPosition);
     if (specularLoc) gl.uniform1f(specularLoc, specularExponent);
 
-    // Set texture for textured rendering
     if (program === texturedProgram && bunnyTexture) {
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, bunnyTexture);
       gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 1);
     }
 
-    // Set environment map for reflection and mixed rendering
     if ((program === reflectionProgram || program === mixedProgram) && skyboxTexture) {
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_CUBE_MAP, skyboxTexture);
@@ -526,7 +520,6 @@ MySample.main = (function() {
       gl.enableVertexAttribArray(normalLocation);
       gl.vertexAttribPointer(normalLocation, 3, gl.FLOAT, false, 0, 0);
 
-      // Bind texture coordinates if using textured program
       if (program === texturedProgram) {
         const texCoordLocation = gl.getAttribLocation(program, 'aTexCoord');
         if (texCoordLocation !== -1) {
@@ -625,20 +618,15 @@ MySample.main = (function() {
         return;
       }
 
-      // Load skybox shaders
       const skyboxVertexSource = await loadFileFromServer('shaders/skybox.vert');
       const skyboxFragmentSource = await loadFileFromServer('shaders/skybox.frag');
-      console.log('Skybox vertex shader source:', skyboxVertexSource.substring(0, 100));
-      console.log('Skybox fragment shader source:', skyboxFragmentSource.substring(0, 100));
       skyboxProgram = createShaderProgram(gl, skyboxVertexSource, skyboxFragmentSource);
 
       if (!skyboxProgram) {
         console.error('Failed to create skybox shader program');
         return;
       }
-      console.log('Skybox shader program created successfully');
 
-      // Load textured shaders
       const texturedVertexSource = await loadFileFromServer('shaders/textured.vert');
       const texturedFragmentSource = await loadFileFromServer('shaders/textured.frag');
       texturedProgram = createShaderProgram(gl, texturedVertexSource, texturedFragmentSource);
@@ -648,7 +636,6 @@ MySample.main = (function() {
         return;
       }
 
-      // Load reflection shaders
       const reflectionVertexSource = await loadFileFromServer('shaders/reflection.vert');
       const reflectionFragmentSource = await loadFileFromServer('shaders/reflection.frag');
       reflectionProgram = createShaderProgram(gl, reflectionVertexSource, reflectionFragmentSource);
@@ -658,8 +645,7 @@ MySample.main = (function() {
         return;
       }
 
-      // Load mixed shaders
-      const mixedVertexSource = await loadFileFromServer('shaders/reflection.vert'); // Same vertex shader
+      const mixedVertexSource = await loadFileFromServer('shaders/reflection.vert');
       const mixedFragmentSource = await loadFileFromServer('shaders/mixed.frag');
       mixedProgram = createShaderProgram(gl, mixedVertexSource, mixedFragmentSource);
 
@@ -668,18 +654,14 @@ MySample.main = (function() {
         return;
       }
 
-      console.log('Loading bunny model...');
       const bunnyData = await parsePLYFile('assets/models/bunny.ply');
       bunnyModel = createModelBuffers(gl, bunnyData);
       console.log(`Bunny loaded: ${bunnyData.vertexCount} vertices, ${bunnyData.faceCount} faces`);
 
-      console.log('Loading dragon model...');
       const dragonData = await parsePLYFile('assets/models/dragon.ply');
       dragonModel = createModelBuffers(gl, dragonData);
       console.log(`Dragon loaded: ${dragonData.vertexCount} vertices, ${dragonData.faceCount} faces`);
 
-      // Load skybox
-      console.log('Loading skybox...');
       skyboxModel = createSkyboxGeometry(gl);
       const faces = [
         'assets/textures/posx.jpg',
@@ -692,8 +674,6 @@ MySample.main = (function() {
       skyboxTexture = await loadCubeMap(gl, faces);
       console.log('Skybox loaded, texture ID:', skyboxTexture);
 
-      // Load bunny texture
-      console.log('Loading bunny texture...');
       bunnyTexture = await loadTexture(gl, 'assets/textures/bunny_texture.jpg');
       console.log('Bunny texture loaded');
 

@@ -248,10 +248,12 @@ async function parsePLYFile(filename) {
             const numVertices = parts[0];
 
             if (numVertices === 3) {
-                faces.push(parts[1], parts[2], parts[3]);
+                // Reverse winding order to fix inside-out appearance
+                faces.push(parts[1], parts[3], parts[2]);
             } else if (numVertices === 4) {
-                faces.push(parts[1], parts[2], parts[3]);
-                faces.push(parts[1], parts[3], parts[4]);
+                // Reverse winding order for both triangles
+                faces.push(parts[1], parts[3], parts[2]);
+                faces.push(parts[1], parts[4], parts[3]);
             }
         }
         lineIndex++;

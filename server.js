@@ -23,12 +23,10 @@ async function handleRequest(request, response) {
     const file = lookup.substring(1, lookup.length);
 
     try {
-        // Check if file exists and is readable
         await fs.access(file, fs.constants.R_OK);
         console.log(`${lookup} is there`);
-        
+
         try {
-            // Read the file
             const data = await fs.readFile(file);
             const headers = { 'Content-type': mimeTypes[path.extname(lookup)] };
             response.writeHead(200, headers);
